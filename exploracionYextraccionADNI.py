@@ -6,9 +6,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import time
 import pandas as pd
-from pyrobex.robex import robex
-
-
 
 
 ### A continuación se definen funciones para extraer información.
@@ -31,14 +28,12 @@ csv_files = os.listdir(PATH_INFORMATION)
 # - ID Paciente
 # - ID Imagen.
 # - Fecha
+
+# La siguiente linea es clave para poder ejecutar el skull stripping desde aqui
+os.environ["FREESURFER_HOME"]="/home/dazckel/Programs/freesurfer"
 for dirname, dirnames, filenames in os.walk(PATH_DATA):
     for filename in filenames:
         my_img  = nb.load(os.path.join(dirname, filename))
-        nii_data = my_img.get_fdata()
-        nii_aff  = my_img.affine
-        nii_hdr  = my_img.header
-        # print(nii_aff ,'\n',nii_hdr)
-        # print(nii_data.shape)
         #Nos quedamos con las imágenes del centro.
         patienID,imgID,fecha = getInformation(filename)
         for fi in csv_files:
@@ -50,16 +45,22 @@ for dirname, dirnames, filenames in os.walk(PATH_DATA):
         new_name = f'{imgID}_Pa{patienID}_Da{fecha}_Di{diag}'
         names = [new_name+'_Horizontal.nii',new_name+'_Coronal.nii',new_name+'_Sagital.nii']
 
-        if(len(nii_data.shape)==3):
-            middle = [nii_data.shape[0] // 2, nii_data.shape[1] // 2, nii_data.shape[2] // 2]
-            imgH = nb.Nifti1Image(nii_data[middle[0], :, :], np.eye(4))
-            imgC = nb.Nifti1Image(nii_data[:, middle[1], :], np.eye(4))
-            imgS = nb.Nifti1Image(nii_data[:,:, middle[2]], np.eye(4))
-            stripped, mask = robex(imgS)
 
-            # nb.save(imgH,os.path.join(PATH_DATA_NEW,names[0]))
-            # nb.save(imgC,os.path.join(PATH_DATA_NEW,names[1]))
-            # nb.save(imgS,os.path.join(PATH_DATA_NEW,names[2]))
+
+        path_data = os.path.join(dirname, filename)
+        path_watershed = "/home/dazckel/Programs/freesurfer/bin/mri_watershed "
+        new_pname = filename[:-4] + '_stripped.nii'
+        command = path_watershed + path_data + ' ' +os.path.join(dirname,new_pname )
+        os.system(command)
+        my_img  = nb.load(os.path.join(dirname, new_pname))
+        nii_data = my_img.get_fdata()
+        middle = [nii_data.shape[0] // 2, nii_data.shape[1] // 2, nii_data.shape[2] // 2]
+        imgH = nb.Nifti1Image(nii_data[middle[0], :, :], np.eye(4))
+        imgC = nb.Nifti1Image(nii_data[:, middle[1], :], np.eye(4))
+        imgS = nb.Nifti1Image(nii_data[:,:, middle[2]], np.eye(4))
+        nb.save(imgH,os.path.join(PATH_DATA_NEW,names[0]))
+        nb.save(imgC,os.path.join(PATH_DATA_NEW,names[1]))
+        nb.save(imgS,os.path.join(PATH_DATA_NEW,names[2]))
 
 
 
