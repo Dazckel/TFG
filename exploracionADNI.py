@@ -66,6 +66,7 @@ for dirname, dirnames, filenames in os.walk(PATH_DATA):
             command = path_watershed + path_data + ' ' + os.path.join(PATH_DATA_NEW, new_pname)
 
             os.system(command)
+            os.system(f"rm {path_data}")
 
             # if(len(nii_data.shape)==3):
             #     fig, axs = plt.subplots(1,3)

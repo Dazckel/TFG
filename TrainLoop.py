@@ -1,6 +1,11 @@
 import torch
 import torchvision.transforms as trfms
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use('TkAgg', force=True)
 
 
 def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
@@ -17,21 +22,28 @@ def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
         # Cargamos los datos del batch en la GPU, normalizamos y aplicamos transformaciones.
         images_1, images_2, targets = images_1.to(device).float(), images_2.to(device).float(), targets.to(
             device).float()
-        tr1 = trfms.Normalize(images_1.mean(), images_1.std())
-        tr2 = trfms.Normalize(images_2.mean(), images_2.std())
-        images_1 = tr1(images_1)
-        images_2 = tr2(images_2)
+
+        # LAS IMÁGENES DE ADNI ESTÁN YA NORMALIZADAS APARENTEMENTE
+        # tr1 = trfms.Normalize(images_1.mean(), images_1.std())
+        # tr2 = trfms.Normalize(images_2.mean(), images_2.std())
+        # images_1 = tr1(images_1)
+        # images_2 = tr2(images_2)
         optimizer.zero_grad()
         #########################################################################################################
 
-        # Predicción
-        output1, output2 = model(images_1[:, None, :, :], images_2[:, None, :, :])
+        # Predicción-> Es esta la forma correcta de predecir?
+        # input shape = [n_imagenes,channels,h,w]
+        output1, output2 = model(images_1, images_2)
         # Aplicamos función de pérdida
         loss, outputs = criterion(output1, output2, targets)
 
         # Comprobaciones sobre el rendimiento en este batch
+        # Si la distancia es mayor a 0,5 consideramos que son distintos
+        # Si es menor a 0.5, consideramos que pertenecen a la misma clase
         pred = torch.where(outputs > 0.5, 0, 1)
         accuracy.update(pred, targets)
+        accuracy_batch = accuracy(pred, targets)
+        print(f'Batch accuracy: {accuracy_batch.item() * outputs.shape[0]}%')
 
         # Aplicamos backprop
         loss.backward()
