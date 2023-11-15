@@ -24,10 +24,10 @@ def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
             device).float()
 
         # LAS IMÁGENES DE ADNI ESTÁN YA NORMALIZADAS APARENTEMENTE
-        # tr1 = trfms.Normalize(images_1.mean(), images_1.std())
-        # tr2 = trfms.Normalize(images_2.mean(), images_2.std())
-        # images_1 = tr1(images_1)
-        # images_2 = tr2(images_2)
+        tr1 = trfms.Normalize(images_1.mean(), images_1.std())
+        tr2 = trfms.Normalize(images_2.mean(), images_2.std())
+        images_1 = tr1(images_1)
+        images_2 = tr2(images_2)
         optimizer.zero_grad()
         #########################################################################################################
 
@@ -40,7 +40,7 @@ def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
         # Comprobaciones sobre el rendimiento en este batch
         # Si la distancia es mayor a 0,5 consideramos que son distintos
         # Si es menor a 0.5, consideramos que pertenecen a la misma clase
-        pred = torch.where(outputs > 0.5, 0, 1)
+        pred = torch.where(outputs > 1, 1, 0)
         accuracy.update(pred, targets)
         accuracy_batch = accuracy(pred, targets)
         print(f'Batch accuracy: {accuracy_batch.item() * outputs.shape[0]}%')

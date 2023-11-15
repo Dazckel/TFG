@@ -1,12 +1,16 @@
-import numpy as np
-import nibabel as nb
 import os
 from pathlib import Path
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import time
-from pathlib import Path
 import pandas as pd
+
+
+# Descompresión de imágenes.
+def unzip_files(datapath):
+    n_folder = os.listdir(datapath)
+    counter = 0
+    for dirname, dirnames, filenames in os.walk(datapath):
+        for filename in filenames:
+            if filename.endswith(".gz"):
+                os.system(f'gunzip {dirname}/{filename}')
 
 
 def getId(filename):
@@ -23,6 +27,16 @@ def getSessionId(filename):
         id = filename[idx1:]
     else:
         id = filename[idx1:idx1 + idx2]
+    return id
+
+
+def getSessionIdCSV(filename):
+    idx1 = filename.find('d')
+    idx2 = filename[idx1:].find('_')
+    if idx2 == -1:
+        id = filename[idx1:]
+    else:
+        id = filename[idx1 + idx2 + 1:]
     return id
 
 
@@ -45,15 +59,22 @@ path_csv = PATH_DATA / 'OASIS3_data_files' \
            / 'UDSd1' / 'csv' / 'OASIS3_UDSd1_diagnoses.csv'
 path_csv2 = PATH_DATA / 'OASIS3_data_files' \
             / 'UDSd2' / 'csv' / 'OASIS3_UDSd2_med_conditions.csv'
+path_json = PATH_DATA / 'OASIS3_data_files' / 'MRI-json' / 'csv' / 'OASIS3_MR_json.csv'
 df1 = pd.read_csv(path_csv)
 df2 = pd.read_csv(path_csv2)
+df_json = pd.read_csv(path_json)
 allFiles = os.listdir(PATH_IMAGES)
 index = zip(df1['OASISID'].to_list(), df1['OASIS_session_label'].to_list())
 
+sessions = df1['OASIS_session_label'].to_list()
 counter = 0
-for id, ses in index:
+for ses in sessions:
+    b = getId(ses)
+    d = getSessionIdCSV(ses)
     for file in allFiles:
-        if (id in file) and (getSessionId(file) in ses):
+        a = getId(file)
+        c = getSessionId(file)
+        if (a == b) and (c == d):
             counter += 1
             print(counter)
 

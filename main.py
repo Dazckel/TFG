@@ -6,19 +6,19 @@ import numpy as np
 from NeuralNetwork import *
 import time
 
-create_dataset = False  # Indica si se crean de nuevo los datasets o no.
+create_dataset = True  # Indica si se crean de nuevo los datasets o no.
 continuar = False  # Indica si se retoma un nuevo entrenamiento o si se inicia uno desde 0.
 
 # Establecemos las rutas a utilizar.
 PATH_ROOT = Path(os.path.dirname(__file__)).parent  # Ruta de la carpeta padre
-PATH_DATASET = PATH_ROOT / 'Datos/Dataset/ADNI/FINAL_ADNI'  # Rutas hacia las imágenes
+PATH_DATASET = PATH_ROOT / 'Datos/Dataset/ADNI/Images'  # Rutas hacia las imágenes
 
 n_epochs = 10;
 ###############################################################################################################
 
 # Creación de las transformaciones a aplicar.
 # Escogemos como imagen de entrada a la red output
-output = 150
+output = 125
 batch_size = 16
 rescale = Rescale(output=output)
 toTensor = ToTensor()
@@ -30,9 +30,9 @@ transformComp = trfms.Compose([toTensor, rescale])  # Composición de transforma
 # Modelo y optimizador
 model = SiameseNetwork(path_model=path_model, path_optimizer=path_optimizer, lastBatch=0).to(device)
 # Como optimizador cogemos Adam con los parámetros por defecto.
-optimizer = torch.optim.Adam(model.parameters(), lr=1 * (10 ** -4), betas=[0.9, 0.99])
+optimizer = torch.optim.Adam(model.parameters(), lr=0.000001, betas=[0.9, 0.99])
 # Como función de pérdida usamod contractiveloss.
-loss_function = ContractiveLoss(0.5)
+loss_function = ContractiveLoss()
 accuracy = torchmetrics.classification.BinaryAccuracy(validate_args=False)
 accuracy = accuracy.cuda()
 
@@ -71,8 +71,8 @@ test_dataset = SiameseNetworkDataset(transform=transformComp,
                                                               'test_all_classes.csv'))
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=16, shuffle=False)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=16, shuffle=True)
+valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 final_train_accs = []
 final_valid_accs = []

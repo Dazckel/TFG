@@ -13,8 +13,8 @@ PATH_DATA = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/NACC/'
 PATH_IMAGES = PATH_DATA / 'Images'
 PATH_NEW_IMAGES = PATH_DATA / 'NEW_IMAGES'
 PATH_TMP = PATH_DATA / 'TMP'
-path_csv = PATH_DATA / 'investigator_mri_nacc60.csv'
-path_csv2 = PATH_DATA / 'investigator_nacc60.csv'
+path_csv = PATH_DATA / 'rdd-imaging.csv'
+path_csv2 = PATH_DATA / 'uds3-rdd.csv'
 os.environ["FREESURFER_HOME"] = "/usr/local/freesurfer"
 path_watershed = os.environ["FREESURFER_HOME"] + "/bin/mri_watershed "
 
@@ -84,8 +84,8 @@ if not os.path.isdir(PATH_NEW_IMAGES):
     os.mkdir(PATH_NEW_IMAGES)
 os.system(f'rm -rf {PATH_TMP}')
 counter = 0
-# df1 = pd.read_csv(path_csv)
-df1 = pd.read_csv(path_csv2)
+df2 = pd.read_csv(path_csv, dtype='unicode')
+df1 = pd.read_csv(path_csv2, dtype='unicode')
 # Iteramos sobre todos los archivos comprimidos de la base de datos.
 listdir = os.listdir(PATH_IMAGES)
 for filezip in listdir:
@@ -116,3 +116,15 @@ for filezip in listdir:
 #   - skull stripping
 #   - guardamos resultado en otra carpeta
 #   - borramos descompresión.
+
+
+# /for file in listdir:
+#     if df1[df1['NACCID']==getId(file)].empty or df2[df2['NACCID']==getId(file)].empty or df2[df2['NACCID']==getId(
+#     file)]['NACCMRFI'].empty or (df2[df2['NACCID']==getId(file)]['MRIT1'].empty and df2[df2['NACCID']==getId(
+#     file)]['MRIT2'].empty) :
+#         counter+=1
+
+# for file in listdir:
+#     a = file.find('ni.zip')
+#     if len(df2[df2['NACCMRFI']==(file[:a]+'.zip')])>0:
+#         counter+=1

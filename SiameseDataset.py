@@ -11,7 +11,8 @@ import numpy as np
 from skimage.measure import shannon_entropy as entropy
 
 PATH_ROOT = Path(os.path.dirname(__file__)).parent
-PATH_DATASET = PATH_ROOT / 'Datos/Dataset/ADNI/FINAL_ADNI'
+PATH_ADNI_IMAGES = PATH_ROOT / 'Datos' / 'Dataset' / 'ADNI' / 'NewImages'
+PATH_DATASET = ""
 Diagnosis = ["NL", "MCI", "AD"]
 
 
@@ -64,9 +65,9 @@ class SiameseNetworkDataset(Dataset):
             class1 = filenames_classes[filename1]
             class2 = filenames_classes[filename2]
             if class1 == class2:
-                lbs.append(1)  # Ambas imágenes pertenecen a la misma clase.
+                lbs.append(0)  # Ambas imágenes pertenecen a la misma clase.
             else:
-                lbs.append(0)  # Las imágenes no pertenecen a la misma clase.
+                lbs.append(1)  # Las imágenes no pertenecen a la misma clase.
             x0.append(filename1)
             x1.append(filename2)
 
@@ -280,3 +281,63 @@ def createDataset(path_dataset):
     print("Train examples: ", train_dataset.__len__())
     print("Valid examples: ", valid_dataset.__len__())
     print("Test examples: ", test_dataset.__len__())
+
+
+def isT1(file):
+    if '3T' in file:
+        return '3T'
+    elif '1.5T' in file:
+        return '1.5T'
+    else:
+        return '0'
+
+
+def getADNIfiles():
+    img_names_T1 = []
+    img_names_T3 = []
+    for dirname, dirnames, filenames in os.walk(PATH_ADNI_IMAGES):
+        for filename in filenames:
+            if isT1(dirname) == '1.5T':
+                img_names_T1.append(filename)
+            elif isT1(dirname) == '3T':
+                img_names_T3.append(filename)
+    return [set(img_names_T1), set(img_names_T3)]
+
+
+def getNumberOperation(fileName):
+    counter = 0
+    if 'N3' in fileName:
+        counter += 1
+    if 'B1' in fileName:
+        counter += 1
+    if 'GradWarp' in fileName:
+        counter += 1
+    return counter
+
+
+def getSamePreproADNI(images):
+    op_1 = []
+    op_2 = []
+    op_3 = []
+    for image in images:
+        if getNumberOperation(image) == 1:
+            op_1.append(image)
+        elif getNumberOperation(image) == 2:
+            op_2.append(image)
+        elif getNumberOperation(image) == 3:
+            op_3.append(image)
+
+    return [op_1, op_2, op_3]
+
+
+images = getADNIfiles()
+samePrePro_T1 = getSamePreproADNI(images[0])
+samePrePro_T3 = getSamePreproADNI(images[1])
+
+msg_T1 = f'Imágenes tomadas con escáneres T1: \n\t -Procesado de 1 sola operación:\n\t\t {samePrePro_T1[0]}' + \
+         f'\n\t -Procesado de 2 operaciones:\n\t\t {samePrePro_T1[1]}' \
+         f'\n\t -Procesado de 3 operaciones:\n\t\t {samePrePro_T1[2]}'
+
+msg_T3 = f'Imágenes tomadas con escáneres T1: \n\t -Procesado de 1 sola operación:\n\t\t {samePrePro_T3[0]}' + \
+         f'\n\t -Procesado de 2 operaciones:\n\t\t {samePrePro_T3[1]}' \
+         f'\n\t -Procesado de 3 operaciones:\n\t\t {samePrePro_T3[2]}'

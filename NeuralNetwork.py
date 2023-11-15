@@ -4,13 +4,12 @@ MRI para poder.
 
 """
 import os
-from enum import Enum
 import torch
 import torchvision
 from torch import nn
 from pathlib import Path
+from pytorch_metric_learning.losses import ContrastiveLoss
 
-cont = False
 device = (
     "cuda"
     if torch.cuda.is_available()
@@ -28,34 +27,35 @@ PATH_DATASET = PATH_ROOT / 'Datos/Dataset/ADNI/FINAL_ADNI'
 class SiameseNetwork(nn.Module):
     def __init__(self, path_model, path_optimizer, lastBatch=0):
         super(SiameseNetwork, self).__init__()
-        self.resnet = torchvision.models.resnet50(weights=True)
+        self.resnet = torchvision.models.resnet18()
+        # Las imágenes MRI solo t
+        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
+                                      bias=False)
+        # Quitamos la última capa de resnet50 para poder acceder
+        # a la imagen que nos da el extractor de características (bloque convolucional)
+        self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-1]))
 
         # Cambiamos la capa inicial de resnet para poder adaptarla a las imágenes MRI de un solo canal.
         # Por lo general las redes suelen aceptar imágenes a color, que tienen 3 canales.
-        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
-                                      bias=False)
+
         self.path_model = path_model
         self.path_optimizer = path_optimizer
 
         # La última capa de nuestro modelo será una fullyconnected que devolverá las codificaciones
         # de las imágenes en vectores de 64 items.
         self.fc = nn.Sequential(
-            nn.Linear(1000, 256),
+            nn.Linear(2048, 1000),
             nn.Dropout(p=0.4, inplace=True),
-            nn.SiLU(inplace=True),
-            nn.Linear(256, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(1000, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, 64),
         )
         self.lastBatch = lastBatch
         # Cargamos los pesos de la última tanda de entrenamiento
-        if cont:
-            if torch.cuda.device_count() == 1:
-                self.load_state_dict(torch.load(self.path_model))
-            else:
-                self.load_state_dict(
-                    torch.load(self.path_model, map_location=torch.device('cpu')))
-        else:
-            self.resnet.apply(self.init_weights)
-            self.fc.apply(self.init_weights)
+
+        self.resnet.apply(self.init_weights)
+        self.fc.apply(self.init_weights)
 
     def get_path_model(self):
         return self.path_model
@@ -94,18 +94,19 @@ class ContractiveLoss(torch.nn.Module):
         Contrastive loss function
     """
 
-    def __init__(self, margin=0.75):
+    def __init__(self, margin=1):
         super(ContractiveLoss, self).__init__()
         self.margin = margin
 
     def forward(self, x0, x1, y):
         # euclidian distance
         diff = x0 - x1
-        dist_sq = torch.sum(torch.pow(diff, 2), 1)
+        dist_sq = torch.sum(torch.pow(diff, 2), 0)
         dist_output = torch.sqrt(dist_sq)  # Distancia euclidea
 
         mdist = self.margin - dist_output
         dist = torch.clamp(mdist, min=0.0)
-        loss = ((1 - y) * dist_sq + y * torch.pow(dist, 2)) / 2.0
-        loss = torch.sum(loss) / x0.size()[0]
+        loss = ((1 - y) * dist_sq + y * torch.pow(dist, 2))
+        loss = torch.mean(loss)
+        # ContrastiveLoss()
         return loss, dist_output

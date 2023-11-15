@@ -16,7 +16,7 @@ def accuracy_personal(model, loader, accuracy: torchmetrics.Accuracy, device, cr
         images_2 = tr2(images_2)
         output1, output2 = model(images_1, images_2)
         loss, outputs = criterion(output1, output2, targets)
-        pred = torch.where(outputs > 0.5, 0, 1)
+        pred = torch.where(outputs > 1, 1, 0)
         # if enter:
         #     print("Preds en valid: ", pred)
         #     enter = False
