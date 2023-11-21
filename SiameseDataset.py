@@ -8,13 +8,23 @@ from sklearn.utils import resample
 from pathlib import Path
 import nibabel as nb
 import numpy as np
-from skimage.measure import shannon_entropy as entropy
+import re
+import platform
+
 
 PATH_ROOT = Path(os.path.dirname(__file__)).parent
-PATH_ADNI_IMAGES = PATH_ROOT / 'Datos' / 'Dataset' / 'ADNI' / 'NewImages'
-PATH_DATASET = ""
 Diagnosis = ["NL", "MCI", "AD"]
+PATH_DATASET = ""
+operating_system = platform.system()
 
+if operating_system == 'Windows':
+    PATH_ADNI_IMAGES = Path('F:/') / 'Dataset/ADNI/NewImages'
+    PATH_INFORMATION = Path('F:/') / '/Dataset/ADNI/Informacion/DatosImagenes'
+    csv_files = os.listdir(PATH_INFORMATION)
+elif operating_system == 'Linux':
+    PATH_ADNI_IMAGES = PATH_ROOT / 'Datos' / 'Dataset' / 'ADNI' / 'NewImages'
+    PATH_INFORMATION = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Informacion/DatosImagenes'
+    csv_files = os.listdir(PATH_INFORMATION)
 
 class SiameseNetworkDataset(Dataset):
     def __init__(self, files_and_clases=None, imageFolderDataset=PATH_DATASET, path_root=PATH_ROOT, transform=None,
@@ -29,7 +39,6 @@ class SiameseNetworkDataset(Dataset):
         self.transform = transform  # Transformaciones realizadas sobre las imágenes
 
         self.path_root = path_root  # Ruta archivos entrenamiento
-        self.transform = transform  # Transformaciones
 
         # En caso de que indiquemos que NO indiquemos un archivo CSV,
         # crear los pares de  imágenes que alimentarán la red.
@@ -54,7 +63,15 @@ class SiameseNetworkDataset(Dataset):
         # Como las combinacioens aparecerán repetidas {(a,b) == (b,a)}
         # convertimos la lista en un conjunto para eliminarlas
         file_pairs = list(set(file_pairs))
+        idxs = []
+        counter = 0
+        for i in file_pairs:
+            if i[0] == i[1]:
+                idxs.append(counter)
+            counter +=1
 
+        for i in idxs:
+            file_pairs.remove(file_pairs[i])
         # Creamos la lista de etiquetas para cada par de imágenes
         # que son los items de nuestra base de datos
         lbs = []
@@ -100,8 +117,8 @@ class SiameseNetworkDataset(Dataset):
         label = self.labels[idx]
 
         if self.transform:
-            img1 = self.transform(img1)
-            img2 = self.transform(img2)
+            img1 = self.transform(img1[:,:,0])
+            img2 = self.transform(img2[:,:,0])
 
         return img1, img2, label, self.file_names[idx][0], self.file_names[idx][1]
 
@@ -126,65 +143,7 @@ class Rescale(object):
 
     def __call__(self, image):
         resize = torchvision.transforms.Resize((self.output_size, self.output_size), antialias=True)
-
-        sizes = [image.shape[0], image.shape[1], image.shape[2]]
-        max_entropy = [0, 0, 0]
-        selected = [0, 0, 0]
-
-        # for i in range(sizes[0]):
-        #     imgH = image[i:i + 1, :, :]
-        #     if entropy(imgH) > max_entropy[0]:
-        #         selected[0] = i
-        #         max_entropy[0] = entropy(imgH)
-
-        for i in range(sizes[1]):
-            imgC = image[:, i:i + 1, :]
-            if entropy(imgC) > max_entropy[1]:
-                selected[1] = i
-                max_entropy[1] = entropy(imgC)
-
-        # for i in range(sizes[2]):
-        #     imgS = image[:, :, i:i + 1]
-        #     if entropy(imgS) > max_entropy[2]:
-        #         selected[2] = i
-        #         max_entropy[2] = entropy(imgS)
-
-        # imageH = image[:, :, selected[2]:selected[2] + 1][:, :0]
-        imageC = image[:, selected[1]:selected[1] + 1, :][:, 0, :]
-        # imageS = image[selected[0]:selected[0] + 1, :, :][0, :, :]
-
-        return resize(imageC[None, :, :])
-
-
-class toSlice(object):
-    def __call__(self, image):
-        sizes = [image.shape[0], image.shape[1], image.shape[2]]
-        max_entropy = [0, 0, 0]
-        selected = [0, 0, 0]
-
-        for i in range(sizes[0]):
-            imgH = image[i:i + 1, :, :]
-            if entropy(imgH) > max_entropy[0]:
-                selected[0] = i
-                max_entropy[0] = entropy(imgH)
-
-        for i in range(sizes[1]):
-            imgC = image[:, i:i + 1, :]
-            if entropy(imgC) > max_entropy[1]:
-                selected[1] = i
-                max_entropy[1] = entropy(imgC)
-
-        for i in range(sizes[2]):
-            imgS = image[:, :, i:i + 1]
-            if entropy(imgS) > max_entropy[2]:
-                selected[2] = i
-                max_entropy[2] = entropy(imgS)
-
-        imageH = image[:, :, selected[2]:selected[2] + 1]
-        imageC = image[:, selected[1]:selected[1] + 1, :]
-        imageS = image[selected[0]:selected[0] + 1, :, :]
-
-        return imageC
+        return resize(image[None,:,:])
 
 
 class ToTensor(object):
@@ -212,13 +171,20 @@ def createDataset(path_dataset):
     NL = []
     MCI = []
     AD = []
-    for img in os.listdir(path_dataset):
-        if Diagnosis[0] in img:
-            NL.append(img)
-        elif Diagnosis[1] in img:
-            MCI.append(img)
-        elif Diagnosis[2] in img:
-            AD.append(img)
+
+# Selección de imágenes T1 con mismo preprocesado.
+    images = getADNIfiles()
+    sagital_T1   = getSagital(images[0])
+    filenames = getSamePreproADNI(sagital_T1)
+
+    for filename in filenames[2]:
+        diag = getDiagnosis(filename)
+        if Diagnosis[0] == diag:
+            NL.append(filename)
+        elif Diagnosis[1] == diag:
+            MCI.append(filename)
+        elif Diagnosis[2] == diag:
+            AD.append(filename)
 
     number_NL = len(NL)
     number_MCI = len(MCI)
@@ -236,14 +202,7 @@ def createDataset(path_dataset):
     filenames.extend(MCI)
     filenames.extend(AD)
 
-    classes = []
-    for i in filenames:
-        if i in NL:
-            classes.append(Diagnosis[0])
-        elif i in MCI:
-            classes.append(Diagnosis[1])
-        elif i in AD:
-            classes.append(Diagnosis[2])
+    classes = [Diagnosis[0]]*len(NL) + [ Diagnosis[1]]*len(MCI) + [Diagnosis[2]]*len(AD)
 
     # Bien, debido que una vez echas las combinaciones nos sería muy tedioso
     # evitar datasnooping ( ya que nuestros items consistirían en parejas de imágenes
@@ -291,19 +250,34 @@ def isT1(file):
     else:
         return '0'
 
-
 def getADNIfiles():
-    img_names_T1 = []
-    img_names_T3 = []
+    img_names_T1 = set()
+    img_names_T3 = set()
+
+    filenames_T3 = set()
+    filenames_T1 = set()
     for dirname, dirnames, filenames in os.walk(PATH_ADNI_IMAGES):
         for filename in filenames:
+            if 'Scaled_2' in filename:
+                filename = filename.replace('Scaled_2', 'Scaled')
+            if 'MPR-R' in filename:
+                filename = filename.replace('MPR-R','MPR')
+            len_T1 = filenames_T1.__len__()
+            len_T3 = filenames_T3.__len__()
             if isT1(dirname) == '1.5T':
-                img_names_T1.append(filename)
+                filenames_T1.add(filename)
+                if(len_T1 != filenames_T1.__len__()):
+                    if 'MPR-R' in dirname:
+                        filename = filename.replace('MPR', 'MPR-R')
+                    if 'Scaled_2' in dirname:
+                        filename = filename.replace('Scaled', 'Scaled_2')
+                    img_names_T1.add(dirname + '\\' + filename)
             elif isT1(dirname) == '3T':
-                img_names_T3.append(filename)
-    return [set(img_names_T1), set(img_names_T3)]
+                filenames_T3.add(filename)
+                if(len_T3 != filenames_T3.__len__()):
+                    img_names_T3.add(dirname + '\\' +filename)
 
-
+    return [img_names_T1, img_names_T3]
 def getNumberOperation(fileName):
     counter = 0
     if 'N3' in fileName:
@@ -329,15 +303,48 @@ def getSamePreproADNI(images):
 
     return [op_1, op_2, op_3]
 
+def getCoronal(files):
+    coronal_files = []
+    for file in files:
+        if '_st_C' in file:
+            coronal_files.append(file)
+    return coronal_files
 
-images = getADNIfiles()
-samePrePro_T1 = getSamePreproADNI(images[0])
-samePrePro_T3 = getSamePreproADNI(images[1])
+def getSagital(files):
+    sagital_files = []
+    for file in files:
+        if '_st_S' in file:
+            sagital_files.append(file)
 
-msg_T1 = f'Imágenes tomadas con escáneres T1: \n\t -Procesado de 1 sola operación:\n\t\t {samePrePro_T1[0]}' + \
-         f'\n\t -Procesado de 2 operaciones:\n\t\t {samePrePro_T1[1]}' \
-         f'\n\t -Procesado de 3 operaciones:\n\t\t {samePrePro_T1[2]}'
+    return sagital_files
 
-msg_T3 = f'Imágenes tomadas con escáneres T1: \n\t -Procesado de 1 sola operación:\n\t\t {samePrePro_T3[0]}' + \
-         f'\n\t -Procesado de 2 operaciones:\n\t\t {samePrePro_T3[1]}' \
-         f'\n\t -Procesado de 3 operaciones:\n\t\t {samePrePro_T3[2]}'
+def getHorizontal(files):
+    horizontal_files = []
+    for file in files:
+        if '_st_H' in file:
+            horizontal_files.append(file)
+
+    return horizontal_files
+def getInformation(fn):
+    filename = fn[::-1][:fn[::-1].find('\\')][::-1]
+    d = filename.find('S')
+    patienID = filename[d - 4:d + 6]
+    d = filename.find('_I')
+    p = filename.find('.')
+    imgID = filename[d + 1:p]
+    imgID = re.sub("[^0-9]", "", imgID)
+    d = filename.find('Br_') + 3
+    fecha = filename[d:d + filename[d:].find('_')]
+    return [patienID, imgID, fecha]
+
+
+def getDiagnosis(filename):
+    patienID, imgID, fecha = getInformation(filename)
+    for fi in csv_files:
+        if (fi[0] != '.'):
+            df = pd.read_csv(os.path.join(PATH_INFORMATION, fi))
+            res = [i for i in df.columns if 'Diagnosis' in i]
+            if (df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID)].__len__() > 0):
+                diag = df[df['Image.ID'] == int(imgID)][res].values[0][0]
+                return diag
+

@@ -1,12 +1,11 @@
-import numpy as np
 import nibabel as nb
 import os
 from pathlib import Path
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import time
-import pandas as pd
+import platform
+from deepbrain import Extractor
 from skimage.measure import shannon_entropy as entropy
+import pandas as pd
+import re
 
 
 def getDifferentImages(datapath):
@@ -26,55 +25,95 @@ def getInformation(filename):
     d = filename.find('_I')
     p = filename.find('.')
     imgID = filename[d + 1:p]
+    imgID = re.sub("[^0-9]", "", imgID)
     d = filename.find('Br_') + 3
     fecha = filename[d:d + filename[d:].find('_')]
     return [patienID, imgID, fecha]
 
+operating_system = platform.system()
 
-## ARCHIVOS DEL ADNI
-PATH_DATA_TMP = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/TMP'
-PATH_DATA = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Images'
-PATH_INFORMATION = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Informacion/DatosImagenes'
-csv_files = os.listdir(PATH_INFORMATION)
+if operating_system == 'Windows':
+    PATH_DATA = Path('F:/') / 'Dataset/ADNI/NewImages'
+    PATH_DATA_TMP = Path('F:/') /'/Dataset/ADNI/TMP'
+    PATH_INFORMATION = Path('F:/') / '/Dataset/ADNI/Informacion/DatosImagenes'
+    csv_files = os.listdir(PATH_INFORMATION)
+elif operating_system == 'Linux':
+    PATH_DATA_TMP = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/TMP'
+    PATH_DATA = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Images'
+    PATH_INFORMATION = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Informacion/DatosImagenes'
+    csv_files = os.listdir(PATH_INFORMATION)
+
 # Atributos para una imagen:
 # - ID Paciente
 # - ID Imagen.
 # - Fecha
-getDifferentImages(PATH_DATA)
-# La siguiente linea es clave para poder ejecutar el skull stripping desde aqui
-os.environ["FREESURFER_HOME"] = "/usr/local/freesurfer"
-path_watershed = os.environ["FREESURFER_HOME"] + "/bin/mri_watershed "
+def processData():
+    getDifferentImages(PATH_DATA)
 
-for dirname, dirnames, filenames in os.walk(PATH_DATA):
-    for filename in filenames:
-        if not ('___Di' in filename):
-            _, idAUX, _ = getInformation(filename)
-            path_data = os.path.join(dirname, filename)
-            my_img = nb.load(path_data)
-            # Nos quedamos con las imágenes del centro.
-            patienID, imgID, fecha = getInformation(filename)
-            for fi in csv_files:
-                if (fi[0] != '.'):
-                    df = pd.read_csv(os.path.join(PATH_INFORMATION, fi))
-                    res = [i for i in df.columns if 'Diagnosis' in i]
-                    if (df[df['Image.ID'] == int(imgID[1:])].__len__() > 0):
-                        diag = df[df['Image.ID'] == int(imgID[1:])][res].values[0][0]
-            new_pname = filename[:-4] + f'___Di{diag}.nii'
-            command = path_watershed + path_data + ' ' + os.path.join(dirname, new_pname)
-            os.system(command)
-            os.system(f"rm {path_data}")
+    ext = Extractor()
 
-        # if(len(nii_data.shape)==3):
-        #     fig, axs = plt.subplots(1,3)
-        #     fig.suptitle(f' Imagen ID: {imgID};  Patien: {patienID};\n Fecha: {fecha}; Diagnosis: {diag}')
-        #     middle = [nii_data.shape[0] // 2, nii_data.shape[1] // 2, nii_data.shape[2] // 2]
-        #     axs[0].imshow(nii_data[middle[0], :, :])
-        #     axs[0].set_title('Horizontal')
-        #     axs[0].axis('off')
-        #     axs[1].imshow(nii_data[:, middle[1], :])
-        #     axs[1].set_title('Coronal')
-        #     axs[1].axis('off')
-        #     axs[2].imshow(nii_data[:,:, middle[2]])
-        #     axs[2].set_title('Sagital')
-        #     axs[2].axis('off')
-        #     plt.show()
+    for dirname, dirnames, filenames in os.walk(PATH_DATA):
+        for filename in filenames:
+            if len(os.listdir(dirname)) == 1:
+                if '.nii' in filename:
+                    path_data = os.path.join(dirname, filename)
+                    new_path_data = (Path(dirname) / Path(filename[:filename.find('.nii')] )).__str__()
+                    img = nb.load(path_data)
+                    try:
+                        data = img.get_fdata()
+
+                        prob = ext.run(data)
+
+                        mask = prob > 0.5
+                        data_stripped = data * mask
+
+                        sizes = [data_stripped.shape[0], data_stripped.shape[1], data_stripped.shape[2]]
+                        max_entropy = [0, 0, 0]
+                        selected = [0, 0, 0]
+                        for i in range(sizes[0]):
+                             imgH = data_stripped[i:i + 1, :, :]
+                             if entropy(imgH) > max_entropy[0]:
+                                 selected[0] = i
+                                 max_entropy[0] = entropy(imgH)
+
+                        for i in range(sizes[1]):
+                            imgC = data_stripped[:, i:i + 1, :]
+                            if entropy(imgC) > max_entropy[1]:
+                                selected[1] = i
+                                max_entropy[1] = entropy(imgC)
+
+                        for i in range(sizes[2]):
+                            imgS = data_stripped[:, :, i:i + 1]
+                            if entropy(imgS) > max_entropy[2]:
+                                selected[2] = i
+                                max_entropy[2] = entropy(imgS)
+
+                        imageH =    data_stripped[selected[0]:selected[0] + 1, :, :][0]
+                        imageC =    data_stripped[:, selected[1]:selected[1] + 1, :][:,0,:]
+                        imageS =    data_stripped[:, :, selected[2]:selected[2] + 1]
+
+                        nb.save(nb.Nifti1Image(imageH,img.affine),new_path_data + "_st_H.nii")
+                        nb.save(nb.Nifti1Image(imageS, img.affine), new_path_data + "_st_S.nii")
+                        nb.save(nb.Nifti1Image(imageC, img.affine), new_path_data + "_st_C.nii")
+                    except:
+                        print(filename)
+
+
+
+def embbededName():
+    for dirname, dirnames, filenames in os.walk(PATH_DATA):
+        for filename in filenames:
+            if '.nii' in filename and '___' not in filename:
+                path_data = os.path.join(dirname, filename)
+                # Nos quedamos con las imágenes del centro.
+                patienID, imgID, fecha = getInformation(filename)
+                for fi in csv_files:
+                    if (fi[0] != '.'):
+                        df = pd.read_csv(os.path.join(PATH_INFORMATION, fi))
+                        res = [i for i in df.columns if 'Diagnosis' in i]
+                        if (df[df['Image.ID'] == int(imgID)].__len__() > 0):
+                            diag = df[df['Image.ID'] == int(imgID)][res].values[0][0]
+                            newname = filename[:filename.find('.nii')] + '___' + diag + '.nii'
+                            os.renames(path_data, os.path.join(dirname, newname))
+                            break
+embbededName()

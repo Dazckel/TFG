@@ -5,17 +5,15 @@ import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('TkAgg', force=True)
+matplotlib.use('TkAgg', force=False)
 
 
-def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
+def train(model, device, train_loader, optimizer, accuracy, criterion):
     torch.autograd.set_detect_anomaly(True)
     model.train()
     train_loss = 0
-    correct = 0
     ratio = 0
     factor = 100
-
     toolbar_width = 50
 
     for batch_idx, (images_1, images_2, targets, _, _) in enumerate(train_loader):
@@ -30,34 +28,28 @@ def train(model, device, train_loader, optimizer, dataset, accuracy, criterion):
         images_2 = tr2(images_2)
         optimizer.zero_grad()
         #########################################################################################################
-
-        # Predicción-> Es esta la forma correcta de predecir?
-        # input shape = [n_imagenes,channels,h,w]
         output1, output2 = model(images_1, images_2)
-        # Aplicamos función de pérdida
         loss, outputs = criterion(output1, output2, targets)
 
-        # Comprobaciones sobre el rendimiento en este batch
-        # Si la distancia es mayor a 0,5 consideramos que son distintos
-        # Si es menor a 0.5, consideramos que pertenecen a la misma clase
         pred = torch.where(outputs > 1, 1, 0)
         accuracy.update(pred, targets)
         accuracy_batch = accuracy(pred, targets)
-        print(f'Batch accuracy: {accuracy_batch.item() * outputs.shape[0]}%')
+
 
         # Aplicamos backprop
-        loss.backward()
+        try:
+            loss.backward()
+        except Exception as ex:
+            return ex
         optimizer.step()
 
         if batch_idx % factor == 0 and batch_idx != 0:
-            # # Cada factor batches, guardaos el modelo y las combinaciones procesadas.
-            #   Cada vez que se realizan batch_size*factor predicciones guardamos el modelo y el optimizer
-            # y ajustamos el learning rate
             if batch_idx != 0:
                 model.set_lastBatch(batch_idx)
                 torch.save(model.state_dict(), model.get_path_model())
                 torch.save(optimizer.state_dict(), model.get_path_optimizer())
                 print("Model Saved")
+                print(f'Last batch accuracy: {accuracy_batch.item() * 100}%')
             ratio = 0
 
         perc = batch_idx / len(train_loader)
