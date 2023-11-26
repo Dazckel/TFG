@@ -10,6 +10,8 @@ import nibabel as nb
 import numpy as np
 import re
 import platform
+from numpy.random import default_rng
+
 
 
 PATH_ROOT = Path(os.path.dirname(__file__)).parent
@@ -20,11 +22,11 @@ operating_system = platform.system()
 if operating_system == 'Windows':
     PATH_ADNI_IMAGES = Path('F:/') / 'Dataset/ADNI/NewImages'
     PATH_INFORMATION = Path('F:/') / '/Dataset/ADNI/Informacion/DatosImagenes'
-    csv_files = os.listdir(PATH_INFORMATION)
+    csv_file = PATH_INFORMATION / "super_dataframe.csv"
 elif operating_system == 'Linux':
     PATH_ADNI_IMAGES = PATH_ROOT / 'Datos' / 'Dataset' / 'ADNI' / 'NewImages'
     PATH_INFORMATION = Path(os.path.dirname(__file__)).parent / 'Datos/Dataset/ADNI/Informacion/DatosImagenes'
-    csv_files = os.listdir(PATH_INFORMATION)
+    csv_file = PATH_INFORMATION / "super_dataframe.csv"
 
 class SiameseNetworkDataset(Dataset):
     def __init__(self, files_and_clases=None, imageFolderDataset=PATH_DATASET, path_root=PATH_ROOT, transform=None,
@@ -62,18 +64,6 @@ class SiameseNetworkDataset(Dataset):
 
         # Como las combinacioens aparecerán repetidas {(a,b) == (b,a)}
         # convertimos la lista en un conjunto para eliminarlas
-        file_pairs = list(set(file_pairs))
-        idxs = []
-        counter = 0
-        for i in file_pairs:
-            if i[0] == i[1]:
-                idxs.append(counter)
-            counter +=1
-
-        for i in idxs:
-            file_pairs.remove(file_pairs[i])
-        # Creamos la lista de etiquetas para cada par de imágenes
-        # que son los items de nuestra base de datos
         lbs = []
         x0 = []
         x1 = []
@@ -97,8 +87,8 @@ class SiameseNetworkDataset(Dataset):
         df1 = final_dataset[final_dataset.Y == 0]
         df2 = final_dataset[final_dataset.Y == 1]
         samples = min([len(df1), len(df2)])
-        df1_balanced = resample(df1, replace=True, n_samples=samples, random_state=2)
-        df2_balanced = resample(df2, replace=True, n_samples=samples, random_state=2)
+        df1_balanced = resample(df1, replace=False, n_samples=samples, random_state=2)
+        df2_balanced = resample(df2, replace=False, n_samples=samples, random_state=2)
 
         final_dataset = pd.concat([df1_balanced, df2_balanced]).reset_index()
         file_pairs = list(zip(final_dataset.x0, final_dataset.x1))
@@ -107,6 +97,13 @@ class SiameseNetworkDataset(Dataset):
         # Devolvemos la lista de imágenes y etiquetas.
         return file_pairs, lbs
 
+
+    def getTriplet(self,idx):
+        img1 = self.file_names[idx][0]
+        img2 = self.file_names[idx][1]
+        label = self.labels[idx]
+
+        return img1, img2, label
     # Función heredada que devuelve la instancia de índie idx del dataset.
     def __getitem__(self, idx):
         img1 = self.file_names[idx][0]
@@ -117,10 +114,10 @@ class SiameseNetworkDataset(Dataset):
         label = self.labels[idx]
 
         if self.transform:
-            img1 = self.transform(img1[:,:,0])
-            img2 = self.transform(img2[:,:,0])
+            img1 = self.transform(img1)
+            img2 = self.transform(img2)
 
-        return img1, img2, label, self.file_names[idx][0], self.file_names[idx][1]
+        return img1, img2, label
 
     # Nos devuelce cuantas imágenes de cada clase tenemos.
     def getStatistic(self):
@@ -152,10 +149,13 @@ class ToTensor(object):
 
 
 def save_to_csv(subset, path):
-    labels = [None] * subset.__len__()
-    imgs1 = [None] * subset.__len__()
-    imgs2 = [None] * subset.__len__()
-    for i, (_, _, label, img1, img2) in enumerate(subset):
+    size = subset.__len__()
+    labels = [None] * size
+    imgs1 = [None] * size
+    imgs2 = [None] * size
+
+    for i in range(0,size):
+        img1,img2,label = subset.getTriplet(i)
         labels[i] = label
         imgs1[i] = img1
         imgs2[i] = img2
@@ -171,20 +171,27 @@ def createDataset(path_dataset):
     NL = []
     MCI = []
     AD = []
-
+    df = pd.read_csv(PATH_INFORMATION / "super_dataframe.csv")
+    df1 = pd.read_csv(os.path.join(Path('F:/') / '/Dataset/ADNI/Informacion/DXSUM_PDXCONV_ADNIALL_23Nov2023.csv'))
 # Selección de imágenes T1 con mismo preprocesado.
     images = getADNIfiles()
-    sagital_T1   = getSagital(images[0])
-    filenames = getSamePreproADNI(sagital_T1)
+    imgs   = getCoronal(images[0])
+    filenames = getSamePreproADNI(imgs)[2]
+    counter = 0
+    for filename in filenames:
+        diag= getDiagnosis(filename,df)
+        diagAux = getDiagnosisAux(filename,df1,df)
 
-    for filename in filenames[2]:
-        diag = getDiagnosis(filename)
-        if Diagnosis[0] == diag:
-            NL.append(filename)
-        elif Diagnosis[1] == diag:
-            MCI.append(filename)
-        elif Diagnosis[2] == diag:
-            AD.append(filename)
+        #Solo cojemos los archivos donde haya coincidencia de diagnóstico.
+        if (diagAux == diag):
+            if Diagnosis[0] == diag:
+                NL.append(filename)
+            elif Diagnosis[1] == diag:
+                MCI.append(filename)
+            elif Diagnosis[2] == diag:
+                AD.append(filename)
+        else:
+            counter += 1
 
     number_NL = len(NL)
     number_MCI = len(MCI)
@@ -197,24 +204,26 @@ def createDataset(path_dataset):
     MCI = MCI[:minNInstances]
     AD = AD[:minNInstances]
 
+    size_database = minNInstances*3
+
     filenames = []
     filenames.extend(NL)
     filenames.extend(MCI)
     filenames.extend(AD)
 
-    classes = [Diagnosis[0]]*len(NL) + [ Diagnosis[1]]*len(MCI) + [Diagnosis[2]]*len(AD)
+    classes = [Diagnosis[0]]*len(NL) + [Diagnosis[1]]*len(MCI) + [Diagnosis[2]]*len(AD)
 
     # Bien, debido que una vez echas las combinaciones nos sería muy tedioso
     # evitar datasnooping ( ya que nuestros items consistirían en parejas de imágenes
     # y averiguar si una imagen esta en alguna pareja de X dataset es difícil e inapropiado)
     # realizamos el split ahora.
 
-    nTest = int(0.2 * minNInstances)
-    nTrain = int(0.8 * minNInstances * 0.8)
-    nVad = int(0.2 * minNInstances * 0.8)
-
+    nTest = int(0.1 * size_database)
+    nTrain = int(0.8 * size_database * 0.9)
+    nVad = int(0.2 * size_database * 0.9)
+    rng = default_rng()
     # Generamos índices aleatorios para obtener los archivos de cada dataset
-    random_idxs = np.random.randint(0, len(filenames), size=minNInstances).tolist()
+    random_idxs = rng.choice( len(filenames),size_database, replace=False).tolist()
 
     files_Train = [filenames[random_idxs[i]] for i in range(0, nTrain)]
     class_Train = [classes[random_idxs[i]] for i in range(0, nTrain)]
@@ -233,16 +242,16 @@ def createDataset(path_dataset):
     # Ahora debemos evitar el data snooping, ya que muchas de las imágenes en un conjunto, estarán el otros
     # Guardamos los diferentes datasets:
 
-    save_to_csv(train_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'train_all_classes.csv'))
-    save_to_csv(valid_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'valid_all_classes.csv'))
-    save_to_csv(test_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'test_all_classes.csv'))
+    save_to_csv(train_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'train_all_classes_T1_same.csv'))
+    save_to_csv(valid_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'valid_all_classes_T1_same.csv'))
+    save_to_csv(test_dataset, os.path.join(PATH_ROOT, 'Codigo', 'DatasetsCSV', 'test_all_classes_T1_same.csv'))
 
     print("Train examples: ", train_dataset.__len__())
     print("Valid examples: ", valid_dataset.__len__())
     print("Test examples: ", test_dataset.__len__())
 
 
-def isT1(file):
+def strenght(file):
     if '3T' in file:
         return '3T'
     elif '1.5T' in file:
@@ -251,31 +260,31 @@ def isT1(file):
         return '0'
 
 def getADNIfiles():
+    ####################
     img_names_T1 = set()
     img_names_T3 = set()
-
     filenames_T3 = set()
     filenames_T1 = set()
+    ####################
     for dirname, dirnames, filenames in os.walk(PATH_ADNI_IMAGES):
         for filename in filenames:
-            if 'Scaled_2' in filename:
-                filename = filename.replace('Scaled_2', 'Scaled')
-            if 'MPR-R' in filename:
-                filename = filename.replace('MPR-R','MPR')
-            len_T1 = filenames_T1.__len__()
-            len_T3 = filenames_T3.__len__()
-            if isT1(dirname) == '1.5T':
-                filenames_T1.add(filename)
-                if(len_T1 != filenames_T1.__len__()):
-                    if 'MPR-R' in dirname:
-                        filename = filename.replace('MPR', 'MPR-R')
-                    if 'Scaled_2' in dirname:
-                        filename = filename.replace('Scaled', 'Scaled_2')
-                    img_names_T1.add(dirname + '\\' + filename)
-            elif isT1(dirname) == '3T':
-                filenames_T3.add(filename)
-                if(len_T3 != filenames_T3.__len__()):
-                    img_names_T3.add(dirname + '\\' +filename)
+            if 'nii' in filename:
+                filename = eraseRedundancy(filename)
+                len_T1 = filenames_T1.__len__()
+                len_T3 = filenames_T3.__len__()
+                ####################
+                if strenght(dirname) == '1.5T':
+                    filenames_T1.add(filename)
+                    if(len_T1 != filenames_T1.__len__()):
+                        filename = restoreRedundancy(filename,dirname)
+                        img_names_T1.add(dirname + '\\' + filename)
+                ####################
+                elif strenght(dirname) == '3T':
+                    filenames_T3.add(filename)
+                    if(len_T3 != filenames_T3.__len__()):
+                        filename = restoreRedundancy(filename, dirname)
+                        img_names_T3.add(dirname + '\\' + filename)
+                ####################
 
     return [img_names_T1, img_names_T3]
 def getNumberOperation(fileName):
@@ -334,17 +343,109 @@ def getInformation(fn):
     imgID = filename[d + 1:p]
     imgID = re.sub("[^0-9]", "", imgID)
     d = filename.find('Br_') + 3
-    fecha = filename[d:d + filename[d:].find('_')]
+    fecha = (fn[:fn.find('\\I')][::-1])[:fn[:fn.find('\\I')][::-1].find('\\')][::-1][:(fn[:fn.find('\\I')][::-1])[:fn[:fn.find('\\I')][::-1].find('\\')][::-1].find('_')]
     return [patienID, imgID, fecha]
 
 
-def getDiagnosis(filename):
+def getDiagnosis(filename,df):
+    diag = ""
     patienID, imgID, fecha = getInformation(filename)
-    for fi in csv_files:
-        if (fi[0] != '.'):
-            df = pd.read_csv(os.path.join(PATH_INFORMATION, fi))
-            res = [i for i in df.columns if 'Diagnosis' in i]
-            if (df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID)].__len__() > 0):
-                diag = df[df['Image.ID'] == int(imgID)][res].values[0][0]
-                return diag
+    fecha = toDateAux(fecha)
+    res = [i for i in df.columns if 'Diagnosis' in i]
+    if (df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID)& (df['Scan.Date'] == fecha)].__len__() > 0):
+        diag = df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID) & (df['Scan.Date'] == fecha)][res].values[0][0]
+        return diag
+    return diag
 
+def toDateAux(date):
+    date[5:7] + '/' + date[8:] + '/' + date[:4]
+    day = date[8:]
+    month = date[5:7]
+    year = date[2:4]
+
+    if day[0] == '0':
+        day = day[1]
+    if month[0] == '0':
+        month = month[1]
+    return month + '/' + day + '/' + year
+
+def getInfoDiag(filename,df):
+    patienID, imgID, fecha = getInformation(filename)
+    fecha = toDateAux(fecha)
+    if (df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID) & (df['Scan.Date'] == fecha)].__len__() > 0):
+        rid = df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID) & (df['Scan.Date'] == fecha)]['RID'].values[0]
+        viscode = df[(df['Image.ID'] == int(imgID)) & (df['PTID'] == patienID) & (df['Scan.Date'] == fecha)]['Visit'].values[0]
+        if viscode == 'Month 12':
+            viscode = "m12"
+        elif viscode == 'Month 6':
+            viscode = "m06"
+        elif viscode == 'Month 24':
+            viscode = "m24"
+        elif viscode == 'Month 18':
+            viscode = "m18"
+        elif viscode == 'Month 36':
+            viscode = "m36"
+        elif viscode == 'Month 48':
+            viscode = "m48"
+        elif viscode == 'Screening':
+            viscode = "bl"
+        elif viscode == 'Baseline':
+            viscode = "bl"
+        return rid,viscode
+def getDiagnosisAux(filename,df,df2):
+    patienID, imgID, fecha = getInformation(filename)
+    try:
+        rid, viscode = getInfoDiag(filename,df2)
+    except Exception :
+        rid = 231
+        viscode = 'bb'
+
+    df = df[df['Phase'] == 'ADNI1']
+    diag = df[(df['RID'] == rid) & (df['PTID'] == patienID) & (df['VISCODE'] == viscode)]['DXCURREN']
+    if diag.empty:
+        return ""
+    return Diagnosis[int(diag) - 1]
+
+
+def eraseRedundancy(filename):
+    if 'Scaled_2' in filename:
+        filename = filename.replace('Scaled_2', 'Scaled')
+    if 'MPR-R' in filename:
+        filename = filename.replace('MPR-R', 'MPR')
+
+    return filename
+
+def restoreRedundancy(filename,dirname):
+    if 'MPR-R' in dirname:
+        filename = filename.replace('MPR', 'MPR-R')
+    if 'Scaled_2' in dirname:
+        filename = filename.replace('Scaled', 'Scaled_2')
+
+    return filename
+
+
+# for i in range(0,size):
+#     i1,i2,l = train_dataset.getTriplet(i)
+#     if (getDiagnosis(i1,df) == getDiagnosis(i2,df)) and l != 0:
+#         print("MIERDA")
+#     if (getDiagnosis(i1,df) != getDiagnosis(i2,df)) and l != 1:
+#         print("MIERDA")
+
+def norm_st(images_1,res,batch_size):
+    images_11 = images_1[:,None,:,:].clone()
+    images_11 = images_11.view(images_1.size(0), -1)
+
+
+    #Standardization
+    means = images_11.mean(1, keepdim=True)
+    stds = images_11.std(1, keepdim=True)
+    images_11 -= means
+    images_11 /=stds
+    #Normalization
+    # mins=images_11.min(1, keepdim=True)[0]
+    # maxs = images_11.max(1, keepdim=True)[0]
+    # images_11 -= mins
+    # images_11 /= (maxs-mins)
+
+
+    return images_11.view(batch_size, res, res)[:,None,:,:]

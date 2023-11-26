@@ -8,6 +8,7 @@ import torch
 import torchvision
 from torchvision.models import ResNet18_Weights
 from torchvision.models import GoogLeNet_Weights
+from torchvision.models.alexnet import AlexNet_Weights
 from torch import nn
 from pathlib import Path
 import math
@@ -34,52 +35,57 @@ class SiameseNetwork(nn.Module):
     def __init__(self, path_model, path_optimizer, lastBatch=0,modelo = "resnet18",output_size = 8):
 
         super(SiameseNetwork, self).__init__()
-
-        if modelo == "resnet18":
+        self.name = modelo
+        ################################################################################################################
+        if self.name == "resnet18":
             self.model = torchvision.models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
             self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
                                       bias=False)
             self.fc_input = 512
             self.model.fc = getfc(self.fc_input,output_size)
-        elif modelo == "GoogleLenet":
+        elif self.name == "GoogleLenet":
             self.model = torchvision.models.googlenet(weights=GoogLeNet_Weights.IMAGENET1K_V1)
             self.fc_input = 1024
             self.model.conv1 = nn.Sequential(
                 nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,bias=False),
                 nn.BatchNorm2d(64, eps=0.001, momentum=0.1, affine=True, track_running_stats=True))
             self.model.fc = getfc(self.fc_input, output_size)
+        elif self.name == "AlexNet":
+            self.model = torchvision.models.alexnet(weights=AlexNet_Weights.IMAGENET1K_V1)
+            self.model.features[0] = nn.Conv2d(1, 64, kernel_size=(11, 11), stride=(4, 4), padding=(2, 2))
+        ################################################################################################################
 
-        # Cambiamos la capa inicial de resnet para poder adaptarla a las imágenes MRI de un solo canal.
-        # Por lo general las redes suelen aceptar imágenes a color, que tienen 3 canales.
-
+        ################################################################################################################
         self.path_model = path_model
         self.path_optimizer = path_optimizer
-
-        # La última capa de nuestro modelo será una fullyconnected que devolverá las codificaciones
-        # de las imágenes en vectores de X items.
+        ################################################################################################################
 
         self.lastBatch = lastBatch
     def get_path_model(self):
         return self.path_model
 
-
-# def getfc(inputs,output_size):
-#     n_layers = math.ceil(Log2(inputs)) - math.ceil(Log2(output_size))
-#     return [nn.Sequential(nn.Linear(int(inputs/math.pow(2,i)), int(inputs/math.pow(2,i+1))),
-#             nn.ReLU(inplace=True)) for i in range(0,n_layers)]
-
     def freeze(self):
-        for param in self.model.parameters():
-            param.requires_grad = False
-        for param in self.model.conv1.parameters():
-            param.requires_grad = True
-        for param in self.model.fc.parameters():
-            param.requires_grad = True
+
+        if not self.name == "AlexNet":
+            for param in self.model.parameters():
+                param.requires_grad = False
+            for param in self.model.conv1.parameters():
+                param.requires_grad = True
+            for param in self.model.fc.parameters():
+                param.requires_grad = True
+        else:
+            for param in self.model.parameters():
+                param.requires_grad = False
+            for param in self.model.features[0].parameters():
+                param.requires_grad = True
 
 
-    def unfreeze(self):
+    def unfreeze(self,optimizer,ft_lr):
         for param in self.model.parameters():
             param.requires_grad = True
+
+        for g in optimizer.param_groups:
+            g['lr'] = ft_lr
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -113,7 +119,7 @@ class ContractiveLoss(torch.nn.Module):
         Contrastive loss function
     """
 
-    def __init__(self, margin=1):
+    def __init__(self, margin=0.5):
         super(ContractiveLoss, self).__init__()
         self.margin = margin
 
@@ -121,11 +127,7 @@ class ContractiveLoss(torch.nn.Module):
         # euclidian distance
         diff = x0 - x1
         dist_sq = torch.sum(torch.pow(diff, 2), 1)
-        try:
-            dist_output = torch.sqrt(dist_sq)  # Distancia euclidea
-        except:
-            print("E")
-
+        dist_output = torch.sqrt(dist_sq)  # Distancia euclidea
         mdist = self.margin - dist_output
         dist = torch.clamp(mdist, min=0.0)
         loss = ((1 - y) * dist_sq + y * torch.pow(dist, 2))
